@@ -73,18 +73,34 @@ Airflow DAG: `dags/retrain_ecommerce_recommendations.py` (еженедельно
 
 ## Моделирование
 
-- **Baseline:** popularity по add-to-cart
-- **Модель:** ALS (implicit), веса view=1 / addtocart=5
-- **Validation:** temporal split 85/15
+- **Stage 1 (candidate generation):** ALS (implicit) + popularity fallback.
+- **Stage 2 (reranking):** LogisticRegression по фичам кандидатов:
+  - `als_score`
+  - `pop_score`
+  - `cat_popularity`
+  - `cat_affinity` (предпочитаемая категория пользователя)
+- **Использование item metadata:** category tree + item_properties (`categoryid`) встроены в rerank-фичи.
+- **Validation:** rolling-time (квантили 0.75 и 0.85) + deployment window 0.85.
 
-| Метрика | Baseline | ALS |
-|---------|----------|-----|
-| Recall@10 | 0.025 | **0.030** |
-| Hit Rate@10 | 0.053 | **0.060** |
-| Coverage@10 | 0.0001 | **0.0085** |
+| Метрика (deployment fold) | Baseline | ALS | ALS + Rerank |
+|---------|----------|-----|------|
+| Recall@10 | 0.071 | 0.060 | 0.571* |
+| Hit Rate@10 | 0.071 | 0.071 | 0.714* |
+| Coverage@10 | 0.0001 | 0.0020 | 0.0277* |
 
-## Мониторинг
+Полная история фолдов и метрик сохраняется в `artifacts/metrics.json` и в MLflow.
 
-См. `monitoring/MONITORING.md`, метрики на `/metrics`.
+\* Для `ALS + Rerank` в текущем deployment fold мало пользователей в оценке (`eval_users=7`), поэтому метрики интерпретируются с осторожностью и обязательно сверяются с rolling validation.
+
+## Мониторинг и обновление модели
+
+- Prometheus-метрики API: `/metrics`.
+- Пороговые условия и алерты: `monitoring/MONITORING.md`.
+- Airflow DAG `dags/retrain_ecommerce_recommendations.py`:
+  1. валидация входных данных;
+  2. retrain;
+  3. проверка артефактов;
+  4. champion/challenger gating по `recall@10`;
+  5. промоут модели только при приемлемом качестве.
 
 **Random seed:** `42`

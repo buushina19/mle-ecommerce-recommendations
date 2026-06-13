@@ -8,18 +8,7 @@ import pandas as pd
 import scipy.sparse as sp
 from sklearn.preprocessing import LabelEncoder
 
-from src.config import (
-    ARTIFACTS_DIR,
-    DATA_DIR,
-    EVENT_WEIGHTS,
-    EVENTS_PATH,
-    ITEM_PROPERTIES_PATHS,
-    MAX_TRAIN_USERS,
-    POSITIVE_EVENTS,
-    RANDOM_STATE,
-    TARGET_EVENT,
-    TRAIN_TIME_QUANTILE,
-)
+from src.config import ARTIFACTS_DIR, DATA_DIR, EVENT_WEIGHTS, EVENTS_PATH, ITEM_PROPERTIES_PATHS, TARGET_EVENT, TRAIN_TIME_QUANTILE
 
 
 def load_events() -> pd.DataFrame:
@@ -29,8 +18,8 @@ def load_events() -> pd.DataFrame:
     return events
 
 
-def temporal_split(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    cutoff = events["timestamp"].quantile(TRAIN_TIME_QUANTILE)
+def temporal_split(events: pd.DataFrame, quantile: float = TRAIN_TIME_QUANTILE) -> tuple[pd.DataFrame, pd.DataFrame]:
+    cutoff = events["timestamp"].quantile(quantile)
     train = events[events["timestamp"] <= cutoff].copy()
     test = events[events["timestamp"] > cutoff].copy()
     return train, test
@@ -118,3 +107,54 @@ def save_encoders(user_enc: LabelEncoder, item_enc: LabelEncoder, path: Path) ->
 
 def load_encoders(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_item_category_map() -> dict[int, int]:
+    path = cache_item_categories()
+    if not path.exists():
+        return {}
+    df = pd.read_parquet(path)
+    if df.empty:
+        return {}
+    return {int(i): int(c) for i, c in zip(df["itemid"].tolist(), df["categoryid"].tolist())}
+
+
+def build_user_top_categories(
+    train: pd.DataFrame,
+    item_to_category: dict[int, int],
+    top_n: int = 3,
+) -> dict[int, list[int]]:
+    positive = train[train["event"].isin(["addtocart", "transaction"])].copy()
+    if positive.empty:
+        return {}
+    positive["categoryid"] = positive["itemid"].map(item_to_category)
+    positive = positive.dropna(subset=["categoryid"])
+    if positive.empty:
+        return {}
+
+    grouped = (
+        positive.groupby(["visitorid", "categoryid"])
+        .size()
+        .reset_index(name="cnt")
+        .sort_values(["visitorid", "cnt"], ascending=[True, False])
+    )
+    result: dict[int, list[int]] = {}
+    for visitor_id, g in grouped.groupby("visitorid"):
+        result[int(visitor_id)] = [int(x) for x in g.head(top_n)["categoryid"].tolist()]
+    return result
+
+
+def build_category_popularity(
+    train: pd.DataFrame,
+    item_to_category: dict[int, int],
+) -> dict[int, float]:
+    positive = train[train["event"].isin(["addtocart", "transaction"])].copy()
+    if positive.empty:
+        return {}
+    positive["categoryid"] = positive["itemid"].map(item_to_category)
+    positive = positive.dropna(subset=["categoryid"])
+    if positive.empty:
+        return {}
+    counts = positive.groupby("categoryid").size()
+    total = counts.sum()
+    return {int(cat): float(cnt / total) for cat, cnt in counts.items()}

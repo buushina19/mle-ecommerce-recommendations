@@ -15,7 +15,7 @@ def test_recommendations():
     data = r.json()
     assert data["visitorid"] == 123456
     assert len(data["recommendations"]) == 10
-    assert data["strategy"] in {"als_personal", "popularity_cold_start"}
+    assert data["strategy"] in {"als_rerank", "popularity_cold_start"}
     print("strategy:", data["strategy"])
     print("items:", data["recommendations"][:5])
 
