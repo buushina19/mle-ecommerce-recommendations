@@ -1,0 +1,13 @@
+{
+  "rows": 2756101,
+  "users": 1407580,
+  "items": 235061,
+  "events_by_type": {
+    "view": 2664312,
+    "addtocart": 69332,
+    "transaction": 22457
+  },
+  "addtocart_share": 0.02515582701795036,
+  "category_pairs": 1669,
+  "items_with_category": 417053
+}
